@@ -26,6 +26,7 @@ instance Arbitrary (TB Integer) where
 instance Arbitrary (TB (Fun' Integer Integer)) where
     arbitrary = oneof
         [ pure <$> arbitrary
+        , liftA2 (>>) (arbitrary :: Gen (TB Integer)) arbitrary
         ]
 
 instance Show a => Show (TB a) where
@@ -53,6 +54,14 @@ prop_applicativeComp (fmap apply' -> u) (fmap apply' -> v) (w :: TB Integer) =
     pure (.) <*> u <*> v <*> w =~= u <*> (v <*> w)
 prop_applicativeHomomorphism (apply' -> f) x =
     pure f <*> pure x =~= pure (f x)
+
+-- Monad laws
+prop_monadRightId (b :: TB Integer) =
+    b >>= return =~= b
+prop_monadLeftId (v :: Integer) (apply' -> k) =
+    return v >>= k =~= k v
+prop_monadAssoc (b :: TB Integer) (apply' -> f) (apply' -> g) =
+    (b >>= f) >>= g =~= b >>= (\x -> f x >>= g)
 
 return []
 main = $quickCheckAll

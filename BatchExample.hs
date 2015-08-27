@@ -23,8 +23,16 @@ runTestReq :: TestReq -> Int
 runTestReq (MultiplyByTwo x) = x * 2
 runTestReq (AddOne x) = x + 1
 
-example1 :: (Int, Int)
-example1 = runBatch handleTestReq $
+example1Monad :: (Int, Int)
+example1Monad = runBatch handleTestReq $ do
+    x <- request $ MultiplyByTwo 5
+    y <- request $ AddOne 10
+    return (x, y)
+    -- should output "Handling 1 requests at once" twice
+    -- with ApplicativeDo should behave the same as example1Applicative
+
+example1Applicative :: (Int, Int)
+example1Applicative = runBatch handleTestReq $
     liftA2 (,) (request $ MultiplyByTwo 5) (request $ AddOne 10)
     -- should output "Handling 2 requests at once"
 

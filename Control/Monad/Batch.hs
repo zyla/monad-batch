@@ -11,8 +11,6 @@
 --
 -- Things to improve:
 --
---  * make it a Monad (now it's only Applicative)
---
 --  * encode the first Handler law in the type (like the Cartesian Store
 --    Comonad from Multiplate paper)
 --
@@ -28,6 +26,7 @@ module Control.Monad.Batch (
 ) where
 
 import Control.Applicative
+import Control.Monad
 import Data.List (splitAt)
 
 type family Result req :: *
@@ -41,24 +40,41 @@ type family Result req :: *
 type Handler req = [req] -> [Result req]
 
 data Batch r a where
-    Request :: [r] -> ([Result r] -> a) -> Batch r a
+    Pure :: a -> Batch r a
+    Request :: [r] -> ([Result r] -> Batch r a) -> Batch r a
 
 instance Functor (Batch r) where
     fmap f x = pure f <*> x
 
 request :: r -> Batch r (Result r)
-request req = Request [req] head
+request req = Request [req] (pure . head)
 
 instance Applicative (Batch r) where
-    pure = Request [] . const
-    Request rf kf <*> Request rx kx =
-        let nf = length rf
+    pure = Pure
+    Pure f <*> Pure x = Pure $ f x
+    f <*> x = 
+        let (rf, kf) = toRequest f
+            (rx, kx) = toRequest x
+
+            -- Return a pair (requests, continuation) for given Batch.
+            -- 'Pure' can be represented as @Request [] . const . pure@ - a "request"
+            -- with no requests, always returning the same value.
+            toRequest (Pure x) = ([], const $ pure x)
+            toRequest (Request r k) = (r, k)
+
             combine results =
-                let (resultsF, resultsX) = splitAt nf results
-                in kf resultsF $ kx resultsX
+                let (resultsF, resultsX) = splitAt (length rf) results
+                in kf resultsF <*> kx resultsX
+
         in Request (rf ++ rx) combine
+
+instance Monad (Batch r) where
+    return = pure
+    Pure x >>= f = f x
+    Request r k >>= f = Request r (k >=> f)
 
 runBatch :: Handler r -> Batch r b -> b
 runBatch handle = go
   where
-    go (Request r k) = k $ handle r
+    go (Pure x) = x
+    go (Request r k) = go $ k $ handle r
