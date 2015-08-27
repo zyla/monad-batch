@@ -10,9 +10,7 @@ import Data.List
 
 newtype Req a = Req { unReq :: a } deriving (Arbitrary)
 type instance Result (Req a) = a
-handleReq = map unReq
-
-type TB a = Batch (Req Integer) a
+handleReq = pure . map unReq
 
 -- TODO: dunno if these Arbitrary instances are any good.
 
@@ -23,7 +21,7 @@ instance Arbitrary (TB Integer) where
         , liftA2 (<*>) (fmap apply' <$> (arbitrary :: Gen (TB (Fun' Integer Integer)))) arbitrary
         ]
 
-instance Arbitrary (TB (Fun' Integer Integer)) where
+instance Arbitrary (TB F) where
     arbitrary = oneof
         [ pure <$> arbitrary
         , liftA2 (>>) (arbitrary :: Gen (TB Integer)) arbitrary
@@ -41,26 +39,40 @@ apply' = apply . unFun'
 instance Show a => Show (Fun' Integer a) where
     show (apply' -> f) = "{" ++ intercalate ", " (map (\x -> show x ++ "->" ++ show (f x)) [-10..10]) ++ "}"
 
+type TB a = Batch (Req Integer) a
+type V = Integer
+type F = Fun' Integer Integer
+type MF = Fun' Integer (TB Integer)
+
 -- Functor laws
-prop_functorId (b :: TB Integer) =
+prop_functorId (b :: TB V) =
     fmap id b =~= b
-prop_functorComp (b :: TB Integer) (apply' -> f) (apply' -> g) =
+
+prop_functorComp :: TB V -> F -> F -> Bool
+prop_functorComp b (apply' -> f) (apply' -> g) =
     fmap (f . g) b =~= fmap f (fmap g b)
 
 -- Applicative laws
-prop_applicativeId (b :: TB Integer) =
+prop_applicativeId (b :: TB V) =
     pure id <*> b =~= b
-prop_applicativeComp (fmap apply' -> u) (fmap apply' -> v) (w :: TB Integer) =
+
+prop_applicativeComp :: TB F -> TB F -> TB V -> Bool
+prop_applicativeComp (fmap apply' -> u) (fmap apply' -> v) w =
     pure (.) <*> u <*> v <*> w =~= u <*> (v <*> w)
+
+prop_applicativeHomomorphism :: F -> V -> Bool
 prop_applicativeHomomorphism (apply' -> f) x =
     pure f <*> pure x =~= pure (f x)
 
 -- Monad laws
-prop_monadRightId (b :: TB Integer) =
+prop_monadRightId (b :: TB V) =
     b >>= return =~= b
-prop_monadLeftId (v :: Integer) (apply' -> k) =
+
+prop_monadLeftId (v :: V) (apply' -> k) =
     return v >>= k =~= k v
-prop_monadAssoc (b :: TB Integer) (apply' -> f) (apply' -> g) =
+
+prop_monadAssoc :: TB V -> MF -> MF -> Bool
+prop_monadAssoc b (apply' -> f) (apply' -> g) =
     (b >>= f) >>= g =~= b >>= (\x -> f x >>= g)
 
 return []

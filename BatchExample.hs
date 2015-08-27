@@ -4,6 +4,7 @@ module BatchExample where
 import Control.Applicative
 import Data.Traversable
 import Debug.Trace
+import Control.Monad.Identity
 
 import Control.Monad.Batch
 
@@ -11,13 +12,13 @@ data TestReq = MultiplyByTwo Int | AddOne Int
 
 type instance Result TestReq = Int
 
-handleTestReq :: Handler TestReq
+handleTestReq :: Handler TestReq Identity
 handleTestReq reqs =
     -- Using Debug.Trace here for demonstration purposes; it will be replaced
     -- by putStrLn when BatchT will be implemented.
     trace ("Handling " ++ show (length reqs) ++ " requests at once") $
     -- Not an actual optimization; just a demonstration
-    map runTestReq reqs
+    return $ map runTestReq reqs
 
 runTestReq :: TestReq -> Int
 runTestReq (MultiplyByTwo x) = x * 2

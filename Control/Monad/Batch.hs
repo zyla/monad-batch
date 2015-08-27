@@ -1,8 +1,8 @@
-{-# LANGUAGE GADTs, TypeFamilies #-}
+{-# LANGUAGE GADTs, TypeFamilies, ScopedTypeVariables #-}
 -- | A data type for computations with requests that can be batched together
 -- and possibly executed more efficiently.
 --
--- To write code in Batch monad, you must provide a request type and a result
+-- To write code in BatchT monad, you must provide a request type and a result
 -- type (via 'Result' type family).  For now, each request type can have only
 -- one result type.
 --
@@ -16,17 +16,19 @@
 --
 --  * support multiple response types (request type indexed by response type)
 --
---  * make it a monad transformer
 module Control.Monad.Batch (
-    Batch
+    BatchT
+  , Batch
   , Result
   , Handler
   , request
   , runBatch
+  , runBatchT
 ) where
 
 import Control.Applicative
 import Control.Monad
+import Control.Monad.Identity
 import Data.List (splitAt)
 
 type family Result req :: *
@@ -37,29 +39,35 @@ type family Result req :: *
 --  length xs = length (handler xs)
 --  handler (xs ++ ys) = handler xs ++ handler ys
 -- @
-type Handler req = [req] -> [Result req]
+type Handler req m = [req] -> m [Result req]
 
-data Batch r a where
-    Pure :: a -> Batch r a
-    Request :: [r] -> ([Result r] -> Batch r a) -> Batch r a
+type Batch r = BatchT r Identity
 
-instance Functor (Batch r) where
+data BatchT r (m :: * -> *) a where
+    Lift :: m a -> BatchT r m a
+    Bind :: BatchT r m a -> (a -> BatchT r m b) -> BatchT r m b
+    Request :: [r] -> ([Result r] -> BatchT r m a) -> BatchT r m a
+
+instance Applicative m => Functor (BatchT r m) where
     fmap f x = pure f <*> x
 
-request :: r -> Batch r (Result r)
+request :: Applicative m => r -> BatchT r m (Result r)
 request req = Request [req] (pure . head)
 
-instance Applicative (Batch r) where
-    pure = Pure
-    Pure f <*> Pure x = Pure $ f x
+instance Applicative m => Applicative (BatchT r m) where
+    pure = Lift . pure
+
+    Lift mf <*> Lift mx = Lift $ mf <*> mx
+    Bind mf k <*> bx = Bind mf ((<*> bx) . k) -- FIXME these do not batch properly
+    bf <*> Bind mx k = Bind mx ((bf <*>) . k)
     f <*> x = 
         let (rf, kf) = toRequest f
             (rx, kx) = toRequest x
 
-            -- Return a pair (requests, continuation) for given Batch.
-            -- 'Pure' can be represented as @Request [] . const . pure@ - a "request"
+            -- Return a pair (requests, continuation) for given BatchT.
+            -- 'Pure' can be represented as @Request [] . const . Lift@ - a "request"
             -- with no requests, always returning the same value.
-            toRequest (Pure x) = ([], const $ pure x)
+            toRequest (Lift x) = ([], const $ Lift x)
             toRequest (Request r k) = (r, k)
 
             combine results =
@@ -68,13 +76,15 @@ instance Applicative (Batch r) where
 
         in Request (rf ++ rx) combine
 
-instance Monad (Batch r) where
-    return = pure
-    Pure x >>= f = f x
-    Request r k >>= f = Request r (k >=> f)
+instance Monad m => Monad (BatchT r m) where
+    return = Lift . return
+    (>>=) = Bind
 
-runBatch :: Handler r -> Batch r b -> b
-runBatch handle = go
+runBatchT :: Monad m => Handler r m -> BatchT r m a -> m a
+runBatchT handle = go
   where
-    go (Pure x) = x
-    go (Request r k) = go $ k $ handle r
+    go (Lift m) = m
+    go (Bind m k) = runBatchT handle m >>= go . k
+    go (Request r k) = handle r >>= go . k
+
+runBatch handle = runIdentity . runBatchT handle
