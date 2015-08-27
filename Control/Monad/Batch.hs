@@ -58,17 +58,11 @@ instance Applicative m => Applicative (BatchT r m) where
     pure = Lift . pure
 
     Lift mf <*> Lift mx = Lift $ mf <*> mx
-    Bind mf k <*> bx = Bind mf ((<*> bx) . k) -- FIXME these do not batch properly
-    bf <*> Bind mx k = Bind mx ((bf <*>) . k)
-    f <*> x = 
+    Bind mf k <*> Lift mx = Bind mf ((<*> Lift mx) . k)
+    Lift mf <*> Bind mx k = Bind mx ((Lift mf <*>) . k)
+    f <*> x =
         let (rf, kf) = toRequest f
             (rx, kx) = toRequest x
-
-            -- Return a pair (requests, continuation) for given BatchT.
-            -- 'Pure' can be represented as @Request [] . const . Lift@ - a "request"
-            -- with no requests, always returning the same value.
-            toRequest (Lift x) = ([], const $ Lift x)
-            toRequest (Request r k) = (r, k)
 
             combine results =
                 let (resultsF, resultsX) = splitAt (length rf) results
@@ -76,8 +70,19 @@ instance Applicative m => Applicative (BatchT r m) where
 
         in Request (rf ++ rx) combine
 
-instance Monad m => Monad (BatchT r m) where
-    return = Lift . return
+-- Return a pair (requests, continuation) for given BatchT.
+-- 'Lift' can be represented as @Request [] . const . Lift@ - a "request"
+-- with no requests, always returning the same value.
+toRequest :: Applicative m => BatchT r m a -> ([r], [Result r] -> BatchT r m a)
+toRequest (Lift x) = ([], const $ Lift x)
+toRequest (Bind m k) =
+    (reqs, k1 >=> k)
+  where
+    (reqs, k1) = toRequest m
+toRequest (Request r k) = (r, k)
+
+instance Applicative m => Monad (BatchT r m) where
+    return = Lift . pure
     (>>=) = Bind
 
 runBatchT :: Monad m => Handler r m -> BatchT r m a -> m a
