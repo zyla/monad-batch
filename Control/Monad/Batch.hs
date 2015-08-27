@@ -34,10 +34,10 @@ import Data.List (splitAt)
 type family Result req :: *
 
 -- Handler function for batched requests.
--- Functions @handler :: Handler req@ should satisfy the following laws:
+-- Functions @handler :: Handler req m@ should satisfy the following laws:
 -- @
---  length xs = length (handler xs)
---  handler (xs ++ ys) = handler xs ++ handler ys
+--  pure (length xs) = length (handler xs)
+--  pure handler (xs ++ ys) = liftA2 (++) (handler xs) (handler ys)
 -- @
 type Handler req m = [req] -> m [Result req]
 
