@@ -53,59 +53,33 @@ type Handler req m = [req] -> m [Result req]
 type Batch r = BatchT r Identity
 
 data BatchT r (m :: * -> *) a where
-    Lift :: m a -> BatchT r m a
-    Bind :: BatchT r m a -> (a -> BatchT r m b) -> BatchT r m b
-    Request :: [r] -> ([Result r] -> BatchT r m a) -> BatchT r m a
+    Request :: [r] -> (Handler r m -> [Result r] -> m a) -> BatchT r m a
 
 instance Applicative m => Functor (BatchT r m) where
     fmap f x = pure f <*> x
 
 request :: Applicative m => r -> BatchT r m (Result r)
-request req = Request [req] (pure . head)
+request req = Request [req] (const $ pure . head)
 
 instance Applicative m => Applicative (BatchT r m) where
-    pure = Lift . pure
+    pure = Request [] . const . const . pure
 
     f <*> x | trace (describe f ++ " <*> " ++ describe x) False = undefined
 
-    Lift mf <*> Lift mx = Lift $ mf <*> mx
-    Bind mf k <*> Lift mx = Bind mf ((<*> Lift mx) . k)
-    Lift mf <*> Bind mx k = Bind mx ((Lift mf <*>) . k)
-    f <*> x =
-        let (rf, kf) = toRequest f
-            (rx, kx) = toRequest x
-
-            combine results =
+    Request rf kf <*> Request rx kx =
+        let combine handle results =
                 let (resultsF, resultsX) = splitAt (length rf) results
-                in kf resultsF <*> kx resultsX
-
+                in kf handle resultsF <*> kx handle resultsX
         in Request (rf ++ rx) combine
 
 describe :: BatchT r m a -> String
-describe (Lift _) = "Lift"
-describe (Bind m _) = "Bind (" ++ describe m ++ ")"
 describe (Request reqs _) = "Request " ++ show (length reqs)
 
--- Return a pair (requests, continuation) for given BatchT.
--- 'Lift' can be represented as @Request [] . const . Lift@ - a "request"
--- with no requests, always returning the same value.
-toRequest :: Applicative m => BatchT r m a -> ([r], [Result r] -> BatchT r m a)
-toRequest (Lift x) = ([], const $ Lift x)
-toRequest (Bind m k) =
-    (reqs, k1 >=> k)
-  where
-    (reqs, k1) = toRequest m
-toRequest (Request r k) = (r, k)
-
-instance Applicative m => Monad (BatchT r m) where
-    return = Lift . pure
-    (>>=) = Bind
+instance Monad m => Monad (BatchT r m) where
+    return = Request [] . const . const . return
+    Request r k >>= f = Request r (\handle -> k handle >=> (runBatchT handle . f))
 
 runBatchT :: Monad m => Handler r m -> BatchT r m a -> m a
-runBatchT handle = go
-  where
-    go (Lift m) = m
-    go (Bind m k) = runBatchT handle m >>= go . k
-    go (Request r k) = handle r >>= go . k
+runBatchT handle (Request r k) = handle r >>= k handle
 
 runBatch handle = runIdentity . runBatchT handle
