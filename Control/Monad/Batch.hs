@@ -25,6 +25,7 @@ module Control.Monad.Batch (
   , request
   , runBatch
   , runBatchT
+  , lift
 ) where
 
 import Control.Applicative
@@ -78,6 +79,8 @@ describe (Request reqs _) = "Request " ++ show (length reqs)
 instance Monad m => Monad (BatchT r m) where
     return = Request [] . const . const . return
     Request r k >>= f = Request r (\handle -> k handle >=> (runBatchT handle . f))
+
+lift = Request [] . const . const
 
 runBatchT :: Monad m => Handler r m -> BatchT r m a -> m a
 runBatchT handle (Request r k) = handle r >>= k handle
