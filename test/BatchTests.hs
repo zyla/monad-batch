@@ -26,5 +26,7 @@ prop_noBatchM x y = run (req x >> req y) === [[x], [y]]
 prop_batchLeftBindAp x y z = run (pair (req x >> req z) (req y)) === [[x, y], [z]]
 prop_batchRightBindAp x y z = run (pair (req x) (req y >> req z)) === [[x, y], [z]]
 
+prop_twoBatches x y z w = run (pair (req x >> req z) (req y >> req w)) === [[x, y], [z, w]]
+
 return []
 main = $quickCheckAll

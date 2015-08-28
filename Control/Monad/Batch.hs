@@ -54,35 +54,55 @@ type Handler req m = [req] -> m [Result req]
 type Batch r = BatchT r Identity
 
 data BatchT r (m :: * -> *) a where
-    Request :: [r] -> (Handler r m -> [Result r] -> m a) -> BatchT r m a
+    Request :: [r] -> (Handler r m -> [Result r] -> m (Either (BatchT r m a) a)) -> BatchT r m a
 
 instance Applicative m => Functor (BatchT r m) where
-    fmap f x = pure f <*> x
+    fmap f (Request r k) = Request r ((fmap . fmap . fmap) (either (Left . fmap f) (return . f)) k)
 
 request :: Applicative m => r -> BatchT r m (Result r)
-request req = Request [req] (const $ pure . head)
+request req = Request [req] (const $ pure . pure . head)
 
 instance Applicative m => Applicative (BatchT r m) where
-    pure = Request [] . const . const . pure
+    pure = Request [] . const . const . pure . pure
 
     f <*> x | trace (describe f ++ " <*> " ++ describe x) False = undefined
 
     Request rf kf <*> Request rx kx =
-        let combine handle results =
+        let combine handle results = do
                 let (resultsF, resultsX) = splitAt (length rf) results
-                in kf handle resultsF <*> kx handle resultsX
+
+                    combine' ef ex | trace ("combine' " ++ show (describeEither ef, describeEither ex)) False = undefined
+
+                    combine' (Right f) (Right x) = Right $ f x
+                    combine' (Right f) (Left bx) = Left $ (f $) <$> bx
+                    combine' (Left bf) (Right x) = Left $ ($ x) <$> bf
+                    combine' (Left bf) (Left bx) = Left $ bf <*> bx
+
+                uncurry combine' <$> liftA2 (,) (kf handle resultsF) (kx handle resultsX)
+
         in Request (rf ++ rx) combine
 
 describe :: BatchT r m a -> String
 describe (Request reqs _) = "Request " ++ show (length reqs)
 
-instance Monad m => Monad (BatchT r m) where
-    return = Request [] . const . const . return
-    Request r k >>= f = Request r (\handle -> k handle >=> (runBatchT handle . f))
+describeEither (Left _) = "Left"
+describeEither (Right _) = "Right"
 
-lift = Request [] . const . const
+instance (Applicative m, Monad m) => Monad (BatchT r m) where
+    return = Request [] . const . const . return . return
+    Request r k >>= f = Request r $ \handle results ->
+        k handle results >>= \e -> case e of
+            Left b -> (>>= return . Left . f) (runBatchT handle b)
+            Right x -> return . Left $ f x
+
+resultToBatchT :: Applicative m => Either (BatchT r m a) a -> BatchT r m a
+resultToBatchT (Left b) = b
+resultToBatchT (Right x) = pure x
+
+lift :: Monad m => m a -> BatchT r m a
+lift = Request [] . const . const . (>>= return . return)
 
 runBatchT :: Monad m => Handler r m -> BatchT r m a -> m a
-runBatchT handle (Request r k) = handle r >>= k handle
+runBatchT handle (Request r k) = handle r >>= k handle >>= either (runBatchT handle) return
 
 runBatch handle = runIdentity . runBatchT handle
