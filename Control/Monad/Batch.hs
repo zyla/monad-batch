@@ -33,14 +33,6 @@ import Control.Monad
 import Control.Monad.Identity
 import Data.List (splitAt)
 
-#define TRACE 0
-
-#if TRACE
-import Debug.Trace (trace)
-#else
-trace _ = id
-#endif
-
 type family Result req :: *
 
 -- Handler function for batched requests.
@@ -54,55 +46,57 @@ type Handler req m = [req] -> m [Result req]
 type Batch r = BatchT r Identity
 
 data BatchT r (m :: * -> *) a where
-    Request :: [r] -> (Handler r m -> [Result r] -> m (Either (BatchT r m a) a)) -> BatchT r m a
+    Lift :: m a -> BatchT r m a
+    Bind :: BatchT r m a -> (a -> BatchT r m b) -> BatchT r m b
+    Ap :: BatchT r m (a -> b) -> BatchT r m a -> BatchT r m b
+    Request :: r -> BatchT r m (Result r)
 
 instance Applicative m => Functor (BatchT r m) where
-    fmap f (Request r k) = Request r ((fmap . fmap . fmap) (either (Left . fmap f) (return . f)) k)
+    fmap = (<*>) . pure
 
 request :: Applicative m => r -> BatchT r m (Result r)
-request req = Request [req] (const $ pure . pure . head)
+request req = Request req
 
 instance Applicative m => Applicative (BatchT r m) where
-    pure = Request [] . const . const . pure . pure
-
-    f <*> x | trace (describe f ++ " <*> " ++ describe x) False = undefined
-
-    Request rf kf <*> Request rx kx =
-        let combine handle results = do
-                let (resultsF, resultsX) = splitAt (length rf) results
-
-                    combine' ef ex | trace ("combine' " ++ show (describeEither ef, describeEither ex)) False = undefined
-
-                    combine' (Right f) (Right x) = Right $ f x
-                    combine' (Right f) (Left bx) = Left $ (f $) <$> bx
-                    combine' (Left bf) (Right x) = Left $ ($ x) <$> bf
-                    combine' (Left bf) (Left bx) = Left $ bf <*> bx
-
-                uncurry combine' <$> liftA2 (,) (kf handle resultsF) (kx handle resultsX)
-
-        in Request (rf ++ rx) combine
-
-describe :: BatchT r m a -> String
-describe (Request reqs _) = "Request " ++ show (length reqs)
-
-describeEither (Left _) = "Left"
-describeEither (Right _) = "Right"
+    pure = Lift . pure
+    (<*>) = Ap
 
 instance (Applicative m, Monad m) => Monad (BatchT r m) where
-    return = Request [] . const . const . return . return
-    Request r k >>= f = Request r $ \handle results ->
-        k handle results >>= \e -> case e of
-            Left b -> (>>= return . Left . f) (runBatchT handle b)
-            Right x -> return . Left $ f x
+    return = Lift . return
+    (>>=) = Bind
 
-resultToBatchT :: Applicative m => Either (BatchT r m a) a -> BatchT r m a
-resultToBatchT (Left b) = b
-resultToBatchT (Right x) = pure x
+lift :: m a -> BatchT r m a
+lift = Lift
 
-lift :: Monad m => m a -> BatchT r m a
-lift = Request [] . const . const . (>>= return . return)
+data View r m a where
+    Pure :: a -> View r m a
+    More :: [r] -> ([Result r] -> BatchT r m a) -> View r m a
 
-runBatchT :: Monad m => Handler r m -> BatchT r m a -> m a
-runBatchT handle (Request r k) = handle r >>= k handle >>= either (runBatchT handle) return
+view :: (Functor m, Applicative m, Monad m) => BatchT r m a -> m (View r m a)
+view (Lift m) = Pure <$> m
+view (Lift m `Bind` f) = m >>= view . f
+view ((m `Bind` f) `Bind` g) = view (m >>= (f >=> g))
+view ((f `Ap` x) `Bind` g) = do
+    v <- view (f `Ap` x)
+    case v of
+        Pure y -> view $ g y
+        More reqs k -> return $ More reqs (k >=> g)
+view (Request r `Bind` f) = return $ More [r] (f . head)
+view (mf `Ap` mx) = uncurry combine <$> liftA2 (,) (view mf) (view mx)
+view (Request r) = return $ More [r] (return . head)
+
+combine :: (Applicative m) => View r m (a -> b) -> View r m a -> View r m b
+combine (Pure f) (Pure x) = Pure $ f x
+combine (Pure f) (reqs `More` g) = More reqs (fmap f . g)
+combine (reqs `More` f) (Pure x) = More reqs (fmap ($ x) . f)
+combine (rf `More` kf) (rx `More` kx) = More (rf ++ rx) $ \results ->
+    let (resultsF, resultsX) = splitAt (length rf) results
+    in kf resultsF <*> kx resultsX
+
+runBatchT :: (Applicative m, Monad m) => Handler r m -> BatchT r m a -> m a
+runBatchT handle = view >=> eval
+  where
+    eval (Pure x) = return x
+    eval (More reqs k) = handle reqs >>= runBatchT handle . k
 
 runBatch handle = runIdentity . runBatchT handle

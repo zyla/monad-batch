@@ -28,5 +28,13 @@ prop_batchRightBindAp x y z = run (pair (req x) (req y >> req z)) === [[x, y], [
 
 prop_twoBatches x y z w = run (pair (req x >> req z) (req y >> req w)) === [[x, y], [z, w]]
 
+prop_anyBatches xs ys =
+        run (pair (mapM_ req xs) (mapM_ req ys))
+    === zipWith (\a b -> [a,b]) xs ys ++ map return (leftovers xs ys)
+
+leftovers xs ys = drop n xs ++ drop n ys
+  where
+    n = min (length xs) (length ys)
+
 return []
 main = $quickCheckAll
