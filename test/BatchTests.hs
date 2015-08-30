@@ -3,7 +3,7 @@
 module BatchTests where
 
 import Control.Applicative
-import Control.Monad.Writer
+import Control.Monad.Writer hiding (lift)
 import Test.QuickCheck hiding (Result)
 import Control.Monad.Batch
 
@@ -35,6 +35,10 @@ prop_anyBatches xs ys =
 leftovers xs ys = drop n xs ++ drop n ys
   where
     n = min (length xs) (length ys)
+
+prop_twoBatchesWithLift x y z w =
+        run (pair (lift (return 0) >> req x >> req z) (req y >> req w))
+    === [[x, y], [z, w]]
 
 return []
 runTests = $quickCheckAll
