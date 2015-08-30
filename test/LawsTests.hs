@@ -3,7 +3,7 @@
 module LawsTests where
 
 import Control.Applicative
-import Control.Monad.Writer hiding (lift)
+import Control.Monad.Writer
 import Test.QuickCheck hiding (Result)
 import Test.QuickCheck.Function
 import Control.Monad.Batch

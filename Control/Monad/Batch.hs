@@ -24,12 +24,12 @@ module Control.Monad.Batch (
   , request
   , runBatch
   , runBatchT
-  , lift
 ) where
 
 import Control.Applicative
 import Control.Monad
 import Control.Monad.Identity
+import Control.Monad.Trans (MonadTrans, lift)
 import Data.List (splitAt)
 
 type family Result req :: *
@@ -50,15 +50,15 @@ request :: Applicative m => r -> BatchT r m (Result r)
 request req = BatchT $ pure $ More [req] (pure . head)
 
 instance Applicative m => Applicative (BatchT r m) where
-    pure = lift . pure
+    pure = BatchT . pure . Pure
     mf <*> mx = BatchT $ liftA2 (<*>) (view mf) (view mx)
 
 instance (Functor m, Monad m) => Monad (BatchT r m) where
     return = lift . return
     m >>= f = BatchT $ view m >>= bindView f
 
-lift :: Functor m => m a -> BatchT r m a
-lift = BatchT . fmap Pure
+instance MonadTrans (BatchT r) where
+    lift = BatchT . (>>= return . Pure)
 
 data View r m a where
     Pure :: a -> View r m a
