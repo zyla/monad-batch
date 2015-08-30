@@ -1,6 +1,6 @@
 {-# LANGUAGE TemplateHaskell, TypeFamilies, ScopedTypeVariables #-}
 {-# LANGUAGE FlexibleInstances, GeneralizedNewtypeDeriving, ViewPatterns #-}
-module Tests where
+module BatchTests where
 
 import Control.Applicative
 import Control.Monad.Writer
@@ -37,4 +37,4 @@ leftovers xs ys = drop n xs ++ drop n ys
     n = min (length xs) (length ys)
 
 return []
-main = $quickCheckAll
+runTests = $quickCheckAll
