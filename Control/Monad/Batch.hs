@@ -1,5 +1,4 @@
-{-# LANGUAGE GADTs, TypeFamilies, ScopedTypeVariables, DeriveFunctor #-}
-{-# LANGUAGE CPP #-}
+{-# LANGUAGE GADTs, TypeFamilies, DeriveFunctor #-}
 -- | A data type for computations with requests that can be batched together
 -- and possibly executed more efficiently.
 --
