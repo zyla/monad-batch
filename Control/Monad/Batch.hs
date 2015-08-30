@@ -1,4 +1,4 @@
-{-# LANGUAGE GADTs, TypeFamilies, ScopedTypeVariables #-}
+{-# LANGUAGE GADTs, TypeFamilies, ScopedTypeVariables, DeriveFunctor #-}
 {-# LANGUAGE CPP #-}
 -- | A data type for computations with requests that can be batched together
 -- and possibly executed more efficiently.
@@ -45,40 +45,31 @@ type Handler req m = [req] -> m [Result req]
 
 type Batch r = BatchT r Identity
 
-data BatchT r (m :: * -> *) a where
-    Lift :: m a -> BatchT r m a
-    Bind :: BatchT r m a -> (a -> BatchT r m b) -> BatchT r m b
-    Ap :: BatchT r m (a -> b) -> BatchT r m a -> BatchT r m b
-    Request :: r -> BatchT r m (Result r)
-
-instance Applicative m => Functor (BatchT r m) where
-    fmap = (<*>) . pure
+newtype BatchT r (m :: * -> *) a = BatchT { view :: m (View r m a) } deriving (Functor)
 
 request :: Applicative m => r -> BatchT r m (Result r)
-request req = Request req
+request req = BatchT $ pure $ More [req] (pure . head)
 
 instance Applicative m => Applicative (BatchT r m) where
-    pure = Lift . pure
-    (<*>) = Ap
+    pure = lift . pure
+    mf <*> mx = BatchT $ uncurry combine <$> liftA2 (,) (view mf) (view mx)
 
-instance (Applicative m, Monad m) => Monad (BatchT r m) where
-    return = Lift . return
-    (>>=) = Bind
+instance (Functor m, Monad m) => Monad (BatchT r m) where
+    return = lift . return
+    m >>= f = BatchT $ view m >>= bindView f
 
-lift :: m a -> BatchT r m a
-lift = Lift
+lift :: Functor m => m a -> BatchT r m a
+lift = BatchT . fmap Pure
 
 data View r m a where
     Pure :: a -> View r m a
     More :: [r] -> ([Result r] -> BatchT r m a) -> View r m a
 
-view :: (Functor m, Applicative m, Monad m) => BatchT r m a -> m (View r m a)
-view (Lift m) = Pure <$> m
-view (m `Bind` f) = view m >>= bindView f
-view (mf `Ap` mx) = uncurry combine <$> liftA2 (,) (view mf) (view mx)
-view (Request r) = return $ More [r] (return . head)
+instance Functor m => Functor (View r m) where
+    fmap f (Pure x) = Pure $ f x
+    fmap f (More reqs k) = More reqs (fmap f . k)
 
-bindView :: (Functor m, Applicative m, Monad m)
+bindView :: (Functor m, Monad m)
          => (a -> BatchT r m b) -> View r m a -> m (View r m b)
 bindView f (Pure x) = view $ f x
 bindView f (More reqs k) = return $ More reqs (k >=> f)
