@@ -74,16 +74,14 @@ data View r m a where
 
 view :: (Functor m, Applicative m, Monad m) => BatchT r m a -> m (View r m a)
 view (Lift m) = Pure <$> m
-view (Lift m `Bind` f) = m >>= view . f
-view ((m `Bind` f) `Bind` g) = view (m >>= (f >=> g))
-view ((f `Ap` x) `Bind` g) = do
-    v <- view (f `Ap` x)
-    case v of
-        Pure y -> view $ g y
-        More reqs k -> return $ More reqs (k >=> g)
-view (Request r `Bind` f) = return $ More [r] (f . head)
+view (m `Bind` f) = view m >>= bindView f
 view (mf `Ap` mx) = uncurry combine <$> liftA2 (,) (view mf) (view mx)
 view (Request r) = return $ More [r] (return . head)
+
+bindView :: (Functor m, Applicative m, Monad m)
+         => (a -> BatchT r m b) -> View r m a -> m (View r m b)
+bindView f (Pure x) = view $ f x
+bindView f (More reqs k) = return $ More reqs (k >=> f)
 
 combine :: (Applicative m) => View r m (a -> b) -> View r m a -> View r m b
 combine (Pure f) (Pure x) = Pure $ f x
