@@ -52,7 +52,7 @@ request req = BatchT $ pure $ More [req] (pure . head)
 
 instance Applicative m => Applicative (BatchT r m) where
     pure = lift . pure
-    mf <*> mx = BatchT $ uncurry combine <$> liftA2 (,) (view mf) (view mx)
+    mf <*> mx = BatchT $ liftA2 (<*>) (view mf) (view mx)
 
 instance (Functor m, Monad m) => Monad (BatchT r m) where
     return = lift . return
@@ -69,18 +69,18 @@ instance Functor m => Functor (View r m) where
     fmap f (Pure x) = Pure $ f x
     fmap f (More reqs k) = More reqs (fmap f . k)
 
+instance Applicative m => Applicative (View r m) where
+    pure = Pure
+    Pure f     <*> mx         = f <$> mx
+    mf         <*> Pure x     = ($ x) <$> mf
+    More rf kf <*> More rx kx = More (rf ++ rx) $ \results ->
+        let (resultsF, resultsX) = splitAt (length rf) results
+        in kf resultsF <*> kx resultsX
+
 bindView :: (Functor m, Monad m)
          => (a -> BatchT r m b) -> View r m a -> m (View r m b)
 bindView f (Pure x) = view $ f x
 bindView f (More reqs k) = return $ More reqs (k >=> f)
-
-combine :: (Applicative m) => View r m (a -> b) -> View r m a -> View r m b
-combine (Pure f) (Pure x) = Pure $ f x
-combine (Pure f) (reqs `More` g) = More reqs (fmap f . g)
-combine (reqs `More` f) (Pure x) = More reqs (fmap ($ x) . f)
-combine (rf `More` kf) (rx `More` kx) = More (rf ++ rx) $ \results ->
-    let (resultsF, resultsX) = splitAt (length rf) results
-    in kf resultsF <*> kx resultsX
 
 runBatchT :: (Applicative m, Monad m) => Handler r m -> BatchT r m a -> m a
 runBatchT handle = view >=> eval
