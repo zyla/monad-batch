@@ -30,6 +30,9 @@ test-suite tests
   main-is:             Tests.hs
   hs-source-dirs:      test
 
+  other-modules:       BatchTests
+                     , LawsTests
+
   build-depends:       base >=4.7 && <4.10
                      , mtl >=2.1 && <2.3
                      , QuickCheck >=2.7 && <2.9
