@@ -1,19 +1,11 @@
-{-# LANGUAGE TemplateHaskell, TypeFamilies, ScopedTypeVariables #-}
-{-# LANGUAGE FlexibleInstances, GeneralizedNewtypeDeriving, ViewPatterns #-}
 module LawsTests where
 
-import Control.Applicative
-import Control.Monad.Writer
-import Test.QuickCheck hiding (Result)
-import Test.QuickCheck.Function
-import Control.Monad.Batch
-import Data.List
+import Common
 
-newtype Req a = Req { unReq :: a } deriving (Arbitrary)
-type instance Result (Req a) = a
-
-handleReq :: [Req a] -> Writer [Integer] [a]
-handleReq = pure . map unReq
+type TB a = BatchT (Req Integer) (Writer [Integer]) a
+type V = Integer
+type F = Fun' Integer Integer
+type MF = Fun' Integer (TB Integer)
 
 -- TODO: dunno if these Arbitrary instances are any good.
 
@@ -36,19 +28,12 @@ instance Show a => Show (TB a) where
 
 run = runWriter . runBatchT handleReq
 
-infix 0 =~=
+handleReq :: [Req a] -> Writer [Integer] [a]
+handleReq = pure . map unReq
+
+-- A property meaning 'a and b have the same effect and return value'
 a =~= b = run a === run b
-
-newtype Fun' a b = Fun' { unFun' :: Fun a b } deriving (Arbitrary)
-apply' = apply . unFun'
-
-instance Show a => Show (Fun' Integer a) where
-    show (apply' -> f) = "{" ++ intercalate ", " (map (\x -> show x ++ "->" ++ show (f x)) [-10..10]) ++ "}"
-
-type TB a = BatchT (Req Integer) (Writer [Integer]) a
-type V = Integer
-type F = Fun' Integer Integer
-type MF = Fun' Integer (TB Integer)
+infix 0 =~=
 
 -- Functor laws
 prop_functorId (b :: TB V) =

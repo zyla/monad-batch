@@ -32,6 +32,14 @@ test-suite tests
 
   other-modules:       BatchTests
                      , LawsTests
+                     , Common
+
+  default-extensions:  TemplateHaskell
+                     , TypeFamilies
+                     , ScopedTypeVariables
+                     , FlexibleInstances
+                     , GeneralizedNewtypeDeriving
+                     , ViewPatterns
 
   build-depends:       base >=4.7 && <4.10
                      , mtl >=2.1 && <2.3
