@@ -18,6 +18,7 @@ library
   other-extensions:    TypeFamilies
                      , GADTs
                      , DeriveFunctor
+                     , RankNTypes
 
   build-depends:       base >=4.7 && <4.10
                      , mtl >=2.1 && <2.3
