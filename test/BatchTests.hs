@@ -5,7 +5,7 @@ import Common
 handleReq :: Handler (Req a) (Writer [[a]])
 handleReq reqs = let results = map unReq reqs in tell [results] >> pure results
 
-run = execWriter . runBatchT handleReq
+run = execWriter . runBatch handleReq 
 
 prop_batchAp x y = run (pair (req x) (req y)) === [[x, y]]
 prop_noBatchM x y = run (req x >> req y) === [[x], [y]]

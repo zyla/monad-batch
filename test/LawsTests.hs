@@ -26,7 +26,7 @@ instance Arbitrary (TB F) where
 instance Show a => Show (TB a) where
     show = show . run
 
-run = runWriter . runBatchT handleReq
+run = runWriter . runBatchT handleReq id
 
 handleReq :: [Req a] -> Writer [Integer] [a]
 handleReq = pure . map unReq

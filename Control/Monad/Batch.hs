@@ -1,4 +1,4 @@
-{-# LANGUAGE GADTs, TypeFamilies, DeriveFunctor #-}
+{-# LANGUAGE GADTs, TypeFamilies, DeriveFunctor, RankNTypes #-}
 -- | A data type for computations with requests that can be batched together
 -- and possibly executed more efficiently.
 --
@@ -112,18 +112,23 @@ request :: Applicative m => r -> BatchT r m (Result r)
 request req = BatchT $ pure $ More [req] (pure . head)
 
 -- | Run the computation.
-runBatchT :: Monad m
+--
+-- The resulting monad doesn't have to be the same as transformed monad.
+-- Therefore a natural transformation from transformed monad to running monad
+-- must be provided.
+runBatchT :: (Monad tm, Monad m)
           => Handler r m -- ^ function to handle requests
-          -> BatchT r m a
+          -> (forall b. tm b -> m b) -- ^ function to run lifted @tm@ actions in @m@
+          -> BatchT r tm a
           -> m a
-runBatchT handle = view >=> eval
+runBatchT handle lift' = (lift' . view) >=> eval
   where
     eval (Pure x) = return x
-    eval (More reqs k) = handle reqs >>= runBatchT handle . k
+    eval (More reqs k) = handle reqs >>= runBatchT handle lift' . k
 
 -- | 'BatchT' specialized to 'Identity' monad.
 type Batch r = BatchT r Identity
 
--- | Run computation in 'Identity' monad.
-runBatch :: Handler r Identity -> Batch r a -> a
-runBatch handle = runIdentity . runBatchT handle
+-- | Run a pure computation (in a monad).
+runBatch :: Monad m => Handler r m -> Batch r a -> m a
+runBatch handle = runBatchT handle (return . runIdentity)
