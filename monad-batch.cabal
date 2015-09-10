@@ -1,5 +1,5 @@
 name:                monad-batch
-version:             0.0.0.1
+version:             0.1.0.0
 synopsis:            A monad for batching requests together
 description:
     A monad transformer which adds a 'request' operation. Independent requests
