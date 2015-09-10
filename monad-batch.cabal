@@ -12,6 +12,10 @@ category:            Control
 build-type:          Simple
 cabal-version:       >=1.10
 
+source-repository head
+  type: git
+  location: https://github.com/zyla/monad-batch
+
 library
   exposed-modules:     Control.Monad.Batch
 
